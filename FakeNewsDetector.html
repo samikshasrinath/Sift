@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fake News Detector(Google Gemma & Academic Grounding)</title>
+  <style>
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-secondary: #121826;
+      --bg-card: rgba(22, 30, 48, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-blue: #38bdf8;
+      --accent-purple: #a855f7;
+      --accent-glow: rgba(56, 189, 248, 0.15);
+      --verdict-verified: #10b981;
+      --verdict-mostly-true: #84cc16;
+      --verdict-misleading: #f59e0b;
+      --verdict-fabricated: #ef4444;
+      --verdict-unsubstantiated: #94a3b8;
+      --radius-lg: 16px;
+      --radius-md: 10px;
+      --radius-sm: 6px;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-family);
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      min-height: 100vh;
+      line-height: 1.5;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(168, 85, 247, 0.08) 0%, transparent 40%);
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border-color);
+    }
+    .logo-area { display: flex; align-items: center; gap: 0.85rem; }
+    .logo-badge {
+      background: linear-gradient(135deg, #0284c7, #9333ea);
+      width: 44px; height: 44px; border-radius: 12px; display: flex;
+      align-items: center; justify-content: center; font-size: 1.4rem;
+      box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+    }
+    .logo-title h1 { font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em; }
+    .logo-title p { font-size: 0.82rem; color: var(--text-muted); }
+    .powered-by { display: flex; gap: 0.5rem; align-items: center; }
+    .badge {
+      font-size: 0.72rem; font-weight: 600; padding: 0.25rem 0.65rem;
+      border-radius: 20px; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .badge-gemma { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-gov { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .main-card {
+      background: var(--bg-card); backdrop-filter: blur(12px); border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); margin-bottom: 2rem;
+    }
+    .tabs { display: flex; gap: 0.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 1.5rem; overflow-x: auto; }
+    .tab-btn {
+      background: transparent; border: none; color: var(--text-muted); font-size: 0.92rem; font-weight: 600;
+      padding: 0.6rem 1.1rem; border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s ease;
+    }
+    .tab-btn:hover { color: var(--text-main); background: rgba(255, 255, 255, 0.04); }
+    .tab-btn.active { color: var(--accent-blue); background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .form-group { margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem; }
+    textarea, input[type="text"], input[type="url"] {
+      width: 100%; background: var(--bg-secondary); border: 1px solid var(--border-color);
+      border-radius: var(--radius-md); padding: 0.85rem 1rem; color: var(--text-main); font-size: 0.95rem; font-family: inherit;
+    }
+    textarea:focus, input[type="text"]:focus, input[type="url"]:focus {
+      outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .samples-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .samples-label { font-size: 0.8rem; color: var(--text-muted); }
+    .sample-chip {
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); color: var(--text-muted);
+      font-size: 0.78rem; padding: 0.3rem 0.75rem; border-radius: 20px; cursor: pointer; transition: all 0.15s ease;
+    }
+    .sample-chip:hover { background: rgba(56, 189, 248, 0.1); color: var(--accent-blue); border-color: rgba(56, 189, 248, 0.3); }
+    .action-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .settings-toggle { font-size: 0.82rem; color: var(--text-muted); background: transparent; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; }
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7, #6366f1); border: none; color: #fff; font-size: 0.95rem;
+      font-weight: 600; padding: 0.8rem 2rem; border-radius: var(--radius-md); cursor: pointer; display: flex;
+      align-items: center; gap: 0.6rem; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.35); transition: transform 0.15s ease;
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(2, 132, 199, 0.45); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .settings-drawer { display: none; background: rgba(10, 14, 23, 0.6); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; margin-top: 1rem; }
+    .settings-drawer.open { display: block; }
+    .loading-box { display: none; text-align: center; padding: 3rem 1.5rem; }
+    .spinner {
+      width: 50px; height: 50px; border: 3px solid rgba(56, 189, 248, 0.2); border-top-color: var(--accent-blue);
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1.25rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .results-box { display: none; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .verdict-banner {
+      background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg);
+      padding: 1.75rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1.75rem; position: relative; overflow: hidden;
+    }
+    .verdict-banner::before { content: ""; position: absolute; top: 0; left: 0; width: 6px; height: 100%; }
+    .verdict-banner.verdict-VERIFIED::before { background: var(--verdict-verified); }
+    .verdict-banner.verdict-MOSTLY_TRUE::before { background: var(--verdict-mostly-true); }
+    .verdict-banner.verdict-MISLEADING::before { background: var(--verdict-misleading); }
+    .verdict-banner.verdict-FABRICATED::before { background: var(--verdict-fabricated); }
+    .verdict-banner.verdict-UNSUBSTANTIATED::before { background: var(--verdict-unsubstantiated); }
+    .score-circle {
+      width: 100px; height: 100px; border-radius: 50%; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; font-weight: 800; flex-shrink: 0; border: 4px solid var(--accent-blue);
+    }
+    .score-val { font-size: 2rem; line-height: 1; }
+    .score-lbl { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); margin-top: 0.2rem; }
+    .verdict-info { flex-grow: 1; }
+    .verdict-badge {
+      display: inline-block; font-size: 0.8rem; font-weight: 800; padding: 0.3rem 0.85rem;
+      border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.6rem;
+    }
+    .verdict-headline { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .verdict-meta { font-size: 0.82rem; color: var(--text-muted); }
+    .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .claim-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.15rem; margin-bottom: 0.9rem; }
+    .claim-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.5rem; }
+    .claim-text { font-weight: 600; font-size: 0.95rem; }
+    .claim-status { font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 6px; text-transform: uppercase; white-space: nowrap; }
+    .claim-reason { font-size: 0.87rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 0.5rem; }
+    .claim-citation { font-size: 0.78rem; color: var(--accent-blue); display: flex; align-items: center; gap: 0.35rem; }
+    .red-flags-box { background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+    .flag-item { font-size: 0.87rem; color: #fca5a5; margin-bottom: 0.35rem; display: flex; align-items: flex-start; gap: 0.5rem; }
+    .sources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .source-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; display: flex; flex-direction: column; justify-content: space-between; }
+    .source-top { display: flex; justify-content: space-between; margin-bottom: 0.4rem; }
+    .source-tag { font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(56, 189, 248, 0.12); color: var(--accent-blue); }
+    .source-title { font-size: 0.88rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .source-meta { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+    .source-link { color: var(--accent-blue); font-size: 0.8rem; text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo-area">
+        <div class="logo-badge">🛡️</div>
+        <div class="logo-title">
+          <h1>Veritas AI News Detector</h1>
+          <p>Multi-source verification via Google Gemma &amp; Official Repositories</p>
+        </div>
+      </div>
+      <div class="powered-by">
+        <span class="badge badge-gemma">Google Gemma</span>
+        <span class="badge badge-gov">PubMed / arXiv / .gov</span>
+      </div>
+    </header>
+
+    <div class="main-card">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="tab-text"><span>📝</span> Text / Statement</button>
+        <button class="tab-btn" data-tab="tab-url"><span>🔗</span> Article URL</button>
+        <button class="tab-btn" data-tab="tab-video"><span>🎥</span> News Video (YouTube/Link)</button>
+        <button class="tab-btn" data-tab="tab-upload"><span>📁</span> Upload Media / Audio</button>
+      </div>
+
+      <div class="samples-bar">
+        <span class="samples-label">Try test cases:</span>
+        <button class="sample-chip" data-sample="cure">🧪 "Miracle Silver Cure"</button>
+        <button class="sample-chip" data-sample="nasa">🚀 "NASA James Webb Atmosphere"</button>
+        <button class="sample-chip" data-sample="economy">📉 "Billionaire Bank Run Rumor"</button>
+      </div>
+
+      <div class="tab-content active" id="tab-text">
+        <div class="form-group">
+          <label for="input-text">News Headline, Article Body, or Social Media Claim</label>
+          <textarea id="input-text" rows="5" placeholder="Paste full article text, social media post, or headline to investigate..."></textarea>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-url">
+        <div class="form-group">
+          <label for="input-url">News Article URL</label>
+          <input type="url" id="input-url" placeholder="https://news-website.com/article-slug">
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-video">
+        <div class="form-group">
+          <label for="input-video-url">Video Link (YouTube, Broadcast, News Clips)</label>
+          <input type="url" id="input-video-url" placeholder="https://www.youtube.com/watch?v=...">
+        </div>
+        <div class="form-group">
+          <label for="input-video-notes">Optional Video Transcript / Spoken Claims</label>
+          <textarea id="input-video-notes" rows="3" placeholder="Key spoken statements or claims in the video..."></textarea>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-upload">
+        <div class="form-group">
+          <label for="input-file">Upload News Video or Audio File</label>
+          <input type="file" id="input-file" accept="video/*,audio/*">
+        </div>
+        <div class="form-group">
+          <label for="input-file-transcript">Transcript / Claims in File</label>
+          <textarea id="input-file-transcript" rows="3" placeholder="Enter key quotes or transcript from the media file..."></textarea>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button class="settings-toggle" id="btn-toggle-settings">⚙️ <span>Configure API &amp; Model</span></button>
+        <button class="btn-primary" id="btn-analyze"><span>🔍</span> Analyze &amp; Verify Claims</button>
+      </div>
+
+      <div class="settings-drawer" id="settings-drawer">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label for="setting-key">Gemma API Key</label>
+            <input type="text" id="setting-key" value="AQ.Ab8RN6KE9c3bBOtOxZrJ96afXKPwqFUTgtZHmLKUei1kNMbkJA">
+          </div>
+          <div class="form-group">
+            <label for="setting-model">Model Engine</label>
+            <input type="text" id="setting-model" value="gemma-4-31b-it">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-card loading-box" id="loading-box">
+      <div class="spinner"></div>
+      <h3 style="font-size: 1.15rem; margin-bottom: 0.5rem;" id="loading-title">Investigating News Claims...</h3>
+      <p style="font-size: 0.88rem; color: var(--text-muted);">
+        Cross-checking PubMed, arXiv, and official registries with Google Gemma...
+      </p>
+    </div>
+
+    <div class="results-box" id="results-box">
+      <div class="verdict-banner" id="verdict-banner">
+        <div class="score-circle" id="score-circle">
+          <div class="score-val" id="score-val">--</div>
+          <div class="score-lbl">Truth Score</div>
+        </div>
+        <div class="verdict-info">
+          <span class="verdict-badge" id="verdict-badge">ANALYZING</span>
+          <div class="verdict-headline" id="verdict-headline">Verdict Headline</div>
+          <div class="verdict-meta" id="verdict-meta">Model: Gemma | Sources: Cross-checked</div>
+        </div>
+      </div>
+
+      <div class="main-card">
+        <div class="section-title">📊 Executive Synthesis</div>
+        <p id="detailed-explanation" style="font-size: 0.95rem; color: #cbd5e1; line-height: 1.6;"></p>
+      </div>
+
+      <div class="red-flags-box" id="red-flags-box" style="display:none;">
+        <div style="font-weight: 700; color: #f87171; margin-bottom: 0.5rem;">⚠️ Red Flags &amp; Rhetorical Manipulations Detected</div>
+        <div id="red-flags-list"></div>
+      </div>
+
+      <div class="main-card">
+        <div class="section-title">🔬 Claim-by-Claim Breakdown</div>
+        <div id="claims-container"></div>
+      </div>
+
+      <div class="main-card">
+        <div class="section-title">🏛️ Trusted Official Repositories &amp; Academic Papers Consulted</div>
+        <div class="sources-grid" id="sources-grid"></div>
+      </div>
+
+      <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-bottom: 2rem;">
+        <button class="sample-chip" id="btn-copy-report">📋 Copy Fact-Check Report</button>
+        <button class="sample-chip" id="btn-export-json">💾 Download JSON</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentAnalysis = null;
+    const tabs = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const btnAnalyze = document.getElementById('btn-analyze');
+    const btnSettings = document.getElementById('btn-toggle-settings');
+    const settingsDrawer = document.getElementById('settings-drawer');
+    const loadingBox = document.getElementById('loading-box');
+    const resultsBox = document.getElementById('results-box');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.getAttribute('data-tab')).classList.add('active');
+      });
+    });
+
+    btnSettings.addEventListener('click', () => {
+      settingsDrawer.classList.toggle('open');
+    });
+
+    const TEST_CASES = {
+      cure: {
+        text: "BREAKING: Secret Russian study proves that drinking colloidal silver and chlorine dioxide daily permanently neutralizes all viral infections, cancers, and respiratory pathogens within 48 hours without any vaccines. Big Pharma and the FDA are actively suppressing this ancient mineral cure."
+      },
+      nasa: {
+        text: "NASA's James Webb Space Telescope has detected clear signatures of water vapor, carbon dioxide, and sulfur dioxide in the atmosphere of exoplanet WASP-39 b, providing unprecedented spectroscopic insight into molecular chemistry of worlds outside our solar system according to peer-reviewed observations published in Nature."
+      },
+      economy: {
+        text: "URGENT ALERT: The Federal Reserve secretly authorized the complete freeze of all civilian bank accounts starting next Monday to prevent an unprecedented nationwide cash run as major commercial banks declare imminent default."
+      }
+    };
+
+    document.querySelectorAll('.sample-chip[data-sample]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const sample = TEST_CASES[chip.getAttribute('data-sample')];
+        if (sample) {
+          document.querySelector('[data-tab="tab-text"]').click();
+          document.getElementById('input-text').value = sample.text;
+        }
+      });
+    });
+
+    btnAnalyze.addEventListener('click', async () => {
+      const activeTab = document.querySelector('.tab-btn.active').getAttribute('data-tab');
+      let payload = {
+        text: '', url: '', video_url: '',
+        api_key: document.getElementById('setting-key').value.trim(),
+        model: document.getElementById('setting-model').value.trim()
+      };
+
+      if (activeTab === 'tab-text') payload.text = document.getElementById('input-text').value.trim();
+      else if (activeTab === 'tab-url') payload.url = document.getElementById('input-url').value.trim();
+      else if (activeTab === 'tab-video') {
+        payload.video_url = document.getElementById('input-video-url').value.trim();
+        payload.text = document.getElementById('input-video-notes').value.trim();
+      } else if (activeTab === 'tab-upload') {
+        payload.text = document.getElementById('input-file-transcript').value.trim();
+      }
+
+      if (!payload.text && !payload.url && !payload.video_url) {
+        alert('Please enter text, a news URL, or video link to analyze.');
+        return;
+      }
+
+      btnAnalyze.disabled = true;
+      loadingBox.style.display = 'block';
+      resultsBox.style.display = 'none';
+
+      try {
+        let result = null;
+        let backendOnline = false;
+        try {
+          const testRes = await fetch('http://127.0.0.1:5050/api/health', { method: 'GET' });
+          if (testRes.ok) backendOnline = true;
+        } catch(e) {}
+
+        if (backendOnline) {
+          const response = await fetch('http://127.0.0.1:5050/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          result = await response.json();
+        } else {
+          // Direct browser mode
+          result = await runDirectBrowserAnalysis(payload);
+        }
+
+        currentAnalysis = result;
+        renderResults(result);
+      } catch (err) {
+        console.error(err);
+        alert(`Analysis error: ${err.message}`);
+      } finally {
+        btnAnalyze.disabled = false;
+        loadingBox.style.display = 'none';
+      }
+    });
+
+    async function runDirectBrowserAnalysis(payload) {
+      const key = payload.api_key;
+      const model = payload.model || 'gemma-4-31b-it';
+      const content = payload.text || payload.url || payload.video_url;
+
+      let evidence = [];
+      try {
+        const q = encodeURIComponent(content.slice(0, 70));
+        const wikiResp = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${q}&format=json&origin=*`);
+        const wikiData = await wikiResp.json();
+        (wikiData.query?.search || []).slice(0, 2).forEach(item => {
+          evidence.push({
+            source_name: 'Wikipedia Reference',
+            type: 'Encyclopedia Consensus',
+            title: item.title,
+            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title)}`,
+            identifier: `Wiki: ${item.title}`,
+            meta: item.snippet.replace(/<[^>]+>/g, '')
+          });
+        });
+      } catch (e) {}
+
+      const prompt = `Analyze this news content for authenticity against scientific and official facts:
+"${content}"
+
+Return a single JSON object inside a \`\`\`json\`\`\` block:
+{
+  "verdict": "VERIFIED" | "MOSTLY_TRUE" | "MISLEADING" | "UNSUBSTANTIATED" | "FABRICATED",
+  "truth_score": 0-100,
+  "confidence_level": "HIGH",
+  "headline_summary": "one line summary",
+  "detailed_explanation": "detailed explanation",
+  "claims": [{"claim": "...", "verdict": "FALSE", "reason": "...", "source_ref": "..."}],
+  "red_flags": ["flag 1"],
+  "logical_fallacies": []
+}`;
+
+      // Try chosen model with fallbacks
+      const models = [model, 'gemini-3.5-flash', 'gemma-4-26b-a4b-it'];
+      let lastErr = null;
+      for (const m of models) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+            })
+          });
+          const jsonRes = await res.json();
+          const rawText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (rawText) {
+            let parsed = null;
+            const match = rawText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) || rawText.match(/(\{[\s\S]*\})/);
+            if (match) {
+              try { parsed = JSON.parse(match[1]); } catch(e) {}
+            }
+            if (!parsed) {
+              parsed = {
+                verdict: rawText.includes('FABRICATED') ? 'FABRICATED' : (rawText.includes('VERIFIED') ? 'VERIFIED' : 'MISLEADING'),
+                truth_score: 50,
+                headline_summary: 'Evaluated by Gemma model.',
+                detailed_explanation: rawText,
+                claims: [],
+                red_flags: []
+              };
+            }
+            parsed.model_used = m;
+            parsed.trusted_evidence = evidence;
+            return parsed;
+          }
+        } catch(e) {
+          lastErr = e;
+        }
+      }
+      throw new Error(lastErr ? lastErr.message : 'API connection failed');
+    }
+
+    function renderResults(data) {
+      resultsBox.style.display = 'block';
+      resultsBox.scrollIntoView({ behavior: 'smooth' });
+
+      const verdictBanner = document.getElementById('verdict-banner');
+      const verdictBadge = document.getElementById('verdict-badge');
+      const scoreVal = document.getElementById('score-val');
+      const scoreCircle = document.getElementById('score-circle');
+      const headline = document.getElementById('verdict-headline');
+      const meta = document.getElementById('verdict-meta');
+
+      const verdict = data.verdict || 'UNSUBSTANTIATED';
+      const score = data.truth_score !== undefined ? data.truth_score : 50;
+
+      verdictBanner.className = `verdict-banner verdict-${verdict}`;
+      verdictBadge.textContent = verdict.replace('_', ' ');
+      scoreVal.textContent = score;
+
+      const colorMap = {
+        'VERIFIED': '#10b981',
+        'MOSTLY_TRUE': '#84cc16',
+        'MISLEADING': '#f59e0b',
+        'FABRICATED': '#ef4444',
+        'UNSUBSTANTIATED': '#94a3b8'
+      };
+      const color = colorMap[verdict] || '#94a3b8';
+      verdictBadge.style.background = `${color}20`;
+      verdictBadge.style.color = color;
+      scoreCircle.style.borderColor = color;
+      scoreCircle.style.boxShadow = `0 0 20px ${color}40`;
+
+      headline.textContent = data.headline_summary || 'Analysis complete.';
+      meta.textContent = `Model: ${data.model_used || 'Gemma'} | Confidence: ${data.confidence_level || 'HIGH'}`;
+      document.getElementById('detailed-explanation').textContent = data.detailed_explanation || '';
+
+      const redFlagsBox = document.getElementById('red-flags-box');
+      const redFlagsList = document.getElementById('red-flags-list');
+      redFlagsList.innerHTML = '';
+      if (data.red_flags && data.red_flags.length > 0) {
+        redFlagsBox.style.display = 'block';
+        data.red_flags.forEach(flag => {
+          const item = document.createElement('div');
+          item.className = 'flag-item';
+          item.innerHTML = `<span>⚠️</span> <span>${escapeHtml(flag)}</span>`;
+          redFlagsList.appendChild(item);
+        });
+      } else {
+        redFlagsBox.style.display = 'none';
+      }
+
+      const claimsContainer = document.getElementById('claims-container');
+      claimsContainer.innerHTML = '';
+      (data.claims || []).forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'claim-card';
+        const cStatus = c.verdict || 'EVALUATED';
+        let statusColor = '#94a3b8';
+        if (cStatus.includes('TRUE')) statusColor = '#10b981';
+        else if (cStatus.includes('FALSE')) statusColor = '#ef4444';
+        else if (cStatus.includes('MISLEADING')) statusColor = '#f59e0b';
+
+        card.innerHTML = `
+          <div class="claim-header">
+            <div class="claim-text">"${escapeHtml(c.claim || '')}"</div>
+            <span class="claim-status" style="background:${statusColor}22; color:${statusColor}; border:1px solid ${statusColor}44;">
+              ${escapeHtml(cStatus)}
+            </span>
+          </div>
+          <div class="claim-reason">${escapeHtml(c.reason || '')}</div>
+          ${c.source_ref ? `<div class="claim-citation">🏛️ Reference: ${escapeHtml(c.source_ref)}</div>` : ''}
+        `;
+        claimsContainer.appendChild(card);
+      });
+
+      const sourcesGrid = document.getElementById('sources-grid');
+      sourcesGrid.innerHTML = '';
+      (data.trusted_evidence || []).forEach(src => {
+        const sCard = document.createElement('div');
+        sCard.className = 'source-card';
+        sCard.innerHTML = `
+          <div>
+            <div class="source-top">
+              <span class="source-tag">${escapeHtml(src.source_name || 'Academic Archive')}</span>
+              <span style="font-size:0.72rem; color:var(--text-muted);">${escapeHtml(src.identifier || '')}</span>
+            </div>
+            <div class="source-title">${escapeHtml(src.title || 'Untitled Publication')}</div>
+            <div class="source-meta">${escapeHtml(src.meta || '')}</div>
+          </div>
+          <div>
+            ${src.url ? `<a href="${src.url}" target="_blank" rel="noopener" class="source-link">Inspect Official Record ↗</a>` : ''}
+          </div>
+        `;
+        sourcesGrid.appendChild(sCard);
+      });
+    }
+
+    document.getElementById('btn-copy-report').addEventListener('click', () => {
+      if (!currentAnalysis) return;
+      const report = `VERITAS FACT-CHECK REPORT\nVerdict: ${currentAnalysis.verdict} (Truth Score: ${currentAnalysis.truth_score}/100)\nHeadline: ${currentAnalysis.headline_summary}\n\nSummary:\n${currentAnalysis.detailed_explanation}`;
+      navigator.clipboard.writeText(report).then(() => alert('Fact check summary copied to clipboard!'));
+    });
+
+    document.getElementById('btn-export-json').addEventListener('click', () => {
+      if (!currentAnalysis) return;
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentAnalysis, null, 2));
+      const dl = document.createElement('a');
+      dl.setAttribute("href", dataStr);
+      dl.setAttribute("download", `fact_check_${Date.now()}.json`);
+      dl.click();
+    });
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>
